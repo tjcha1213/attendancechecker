@@ -61,6 +61,8 @@ type HistoryItem = {
   attendanceCount: number;
 };
 
+type SheetConnection = { configured: boolean; sheetUrl?: string };
+
 export default function AttendanceDashboard({ instructorName }: { instructorName: string }) {
   const [session, setSession] = useState<Session | null>(null);
   const [course, setCourse] = useState("Course Attendance");
@@ -75,6 +77,9 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
   const [historyDetail, setHistoryDetail] = useState<Session | null>(null);
   const [deletingId, setDeletingId] = useState("");
   const [memeIndex, setMemeIndex] = useState(0);
+  const [sheetConnection, setSheetConnection] = useState<SheetConnection>({ configured: false });
+  const [sheetSyncingId, setSheetSyncingId] = useState("");
+  const [sheetMessage, setSheetMessage] = useState("");
 
   const refreshSession = useCallback(async (id: string, quiet = false) => {
     try {
@@ -132,6 +137,14 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
     })
       .then(setQrDataUrl)
       .catch(() => setError("The QR code could not be generated. Refresh the page to try again."));
+  }, [session?.id]);
+
+  useEffect(() => {
+    if (!session) return;
+    fetch("/api/google-sheets", { cache: "no-store" })
+      .then(async (response) => response.ok ? response.json() as Promise<SheetConnection> : { configured: false })
+      .then(setSheetConnection)
+      .catch(() => setSheetConnection({ configured: false }));
   }, [session?.id]);
 
   async function startSession(event: React.FormEvent) {
@@ -231,6 +244,27 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
       setError("Could not delete that attendance session. Please try again.");
     } finally {
       setDeletingId("");
+    }
+  }
+
+  async function syncToGoogleSheets(targetSession = session) {
+    if (!targetSession || !sheetConnection.configured) return;
+    setSheetSyncingId(targetSession.id);
+    setSheetMessage("");
+    setError("");
+    try {
+      const response = await fetch("/api/google-sheets", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId: targetSession.id }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { synced?: number; error?: string };
+      if (!response.ok) throw new Error(result.error);
+      setSheetMessage(`${result.synced ?? 0} attendance ${result.synced === 1 ? "record" : "records"} synced to Google Sheets.`);
+    } catch {
+      setError("Google Sheets did not confirm the sync. Your attendance is still safely stored here; try Sync now again.");
+    } finally {
+      setSheetSyncingId("");
     }
   }
 
@@ -348,6 +382,20 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
           <h2 id="roster-title">Signed in</h2>
           <div className="roster-actions">
             <span>{session.checkins.length} {session.checkins.length === 1 ? "student" : "students"}</span>
+            {sheetConnection.configured && (
+              <button
+                className="sheet-button"
+                type="button"
+                onClick={() => syncToGoogleSheets()}
+                disabled={sheetSyncingId === session.id}
+                title="Reconcile this session with the connected Google Sheet"
+              >
+                {sheetSyncingId === session.id ? "Syncing…" : "↗ Sync now"}
+              </button>
+            )}
+            {sheetConnection.sheetUrl && (
+              <a className="sheet-link" href={sheetConnection.sheetUrl} target="_blank" rel="noreferrer">Open Sheet</a>
+            )}
             <button
               className="download-button"
               type="button"
@@ -372,6 +420,7 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
         ) : (
           <p className="empty-roster">Waiting for the first student to sign in…</p>
         )}
+        {sheetMessage && <p className="sheet-message" role="status">✓ {sheetMessage}</p>}
       </section>
       {error && <p className="display-error" role="alert">{error}</p>}
 
@@ -398,6 +447,7 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
                     <p>{new Date(historyDetail.createdAt).toLocaleString()}</p>
                   </div>
                   <div className="history-detail-actions">
+                    {sheetConnection.configured && <button className="sheet-button" type="button" onClick={() => syncToGoogleSheets(historyDetail)} disabled={sheetSyncingId === historyDetail.id}>{sheetSyncingId === historyDetail.id ? "Syncing…" : "↗ Sync to Sheet"}</button>}
                     <button className="download-button" type="button" onClick={() => downloadAttendance(historyDetail)} disabled={historyDetail.checkins.length === 0}>↓ Download CSV</button>
                     <button className="delete-button" type="button" onClick={() => deleteHistorySession(historyDetail)} disabled={deletingId === historyDetail.id}>{deletingId === historyDetail.id ? "Deleting…" : "Delete session"}</button>
                   </div>

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "../../../db";
 import { checkins, sessions } from "../../../db/schema";
+import { sendGoogleSheetsSync } from "../../../lib/google-sheets";
 
 export const dynamic = "force-dynamic";
 
@@ -25,15 +26,25 @@ export async function POST(request: NextRequest) {
   if (!sessionId || !name || name.length > 80) return NextResponse.json({ error: "Session and name are required" }, { status: 400 });
 
   const db = getDb();
-  const session = await db.select({ id: sessions.id }).from(sessions).where(eq(sessions.id, sessionId)).get();
+  const session = await db
+    .select({ id: sessions.id, course: sessions.course, classDate: sessions.classDate })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .get();
   if (!session) return NextResponse.json({ error: "Session not found" }, { status: 404 });
 
   const checkedInAt = new Date().toISOString();
+  const nameKey = name.toLocaleLowerCase();
   await db.insert(checkins)
-    .values({ sessionId, name, nameKey: name.toLocaleLowerCase(), checkedInAt })
+    .values({ sessionId, name, nameKey, checkedInAt })
     .onConflictDoUpdate({
       target: [checkins.sessionId, checkins.nameKey],
       set: { name, checkedInAt },
     });
-  return NextResponse.json({ ok: true, name, checkedInAt });
+  const sheetSync = await sendGoogleSheetsSync({
+    action: "upsertCheckin",
+    session,
+    checkin: { name, nameKey, checkedInAt },
+  });
+  return NextResponse.json({ ok: true, name, checkedInAt, sheetSync: sheetSync.status });
 }

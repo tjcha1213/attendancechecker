@@ -83,9 +83,14 @@ button:disabled { cursor: wait; opacity: .65; }
 .roster-heading h2 { margin: 0; font-size: 26px; letter-spacing: -.03em; }
 .roster-heading span { color: var(--muted); font-size: 13px; font-weight: 700; }
 .roster-actions { display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
-.download-button { width: auto; min-height: 40px; margin: 0; padding: 0 15px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: white; font-size: 12px; font-weight: 800; }
+.download-button, .sheet-button, .sheet-link { width: auto; min-height: 40px; margin: 0; padding: 0 15px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: white; font-size: 12px; font-weight: 800; }
 .download-button:hover:not(:disabled) { border-color: var(--ink); }
 .download-button:disabled { cursor: not-allowed; opacity: .45; }
+.sheet-button { color: white; background: #188038; }
+.sheet-button:hover:not(:disabled) { background: #126b2e; }
+.sheet-link { display: inline-flex; align-items: center; text-decoration: none; white-space: nowrap; }
+.sheet-link:hover { border-color: var(--ink); }
+.sheet-message { margin: 16px 0 0; color: #18723a; font-size: 12px; font-weight: 700; text-align: right; }
 .name-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px 24px; margin: 22px 0 0; padding: 0; list-style: none; }
 .name-list li { display: grid; grid-template-columns: 38px 1fr auto; gap: 11px; align-items: center; min-width: 0; padding: 11px 0; border-top: 1px solid var(--line); }
 .initial { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; color: white; background: var(--ink); font-size: 13px; font-weight: 800; }
