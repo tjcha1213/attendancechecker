@@ -50,6 +50,7 @@ type HistoryItem = {
   classDate: string;
   createdAt: string;
   attendanceCount: number;
+  canManage: boolean;
 };
 
 type SheetConnection = { configured: boolean; sheetUrl?: string };
@@ -149,7 +150,7 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
 
   async function renewSession() {
     if (!session) return;
-    if (!window.confirm("Start a new attendance session? The current roster will remain available in Session history.")) return;
+    if (!window.confirm("Start a new attendance session? This clears only the live roster. The current roster will remain in History and be preserved in Google Sheets.")) return;
     setStarting(true);
     setError("");
     try {
@@ -158,15 +159,16 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ course: session.course, renew: true }),
       });
-      if (!response.ok) throw new Error();
-      const data = (await response.json()) as Session;
+      const result = (await response.json().catch(() => ({}))) as Session & { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not renew attendance");
+      const data = result as Session;
       const nextMemeIndex = (memeIndex + 1) % MEMES.length;
       setMemeIndex(nextMemeIndex);
       setSession(data);
       setQrDataUrl("");
       setHistory([]);
-    } catch {
-      setError("Could not renew attendance. Please try again.");
+    } catch (renewError) {
+      setError(renewError instanceof Error ? renewError.message : "Could not renew attendance. Please try again.");
     } finally {
       setStarting(false);
     }
@@ -201,6 +203,7 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
   }
 
   async function deleteHistorySession(target: HistoryItem | Session) {
+    if (!target.canManage) return;
     const attendanceCount = "attendanceCount" in target ? target.attendanceCount : target.checkins.length;
     const warning = attendanceCount === 1 ? "1 attendance record" : `${attendanceCount} attendance records`;
     if (!window.confirm(`Permanently delete ${target.course} from ${new Date(target.createdAt).toLocaleString()} and ${warning}? This cannot be undone.`)) return;
@@ -327,12 +330,10 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
             <strong>{formattedDate}</strong>
             <span>{formattedTime}</span>
           </div>
-          {session.canManage && (
-            <div className="session-actions">
-              <button type="button" onClick={openHistory}>History</button>
-              <button type="button" onClick={renewSession} disabled={starting}>{starting ? "Renewing…" : "↻ Renew"}</button>
-            </div>
-          )}
+          <div className="session-actions">
+            <button type="button" onClick={openHistory}>History</button>
+            <button type="button" onClick={renewSession} disabled={starting}>{starting ? "Renewing…" : "↻ Renew"}</button>
+          </div>
         </div>
       </header>
 
@@ -409,7 +410,7 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
           <section className="history-panel" role="dialog" aria-modal="true" aria-labelledby="history-title">
             <div className="history-header">
               <div>
-                <p className="eyebrow">Instructor archive</p>
+                <p className="eyebrow">Shared session archive</p>
                 <h2 id="history-title">Session history</h2>
                 <p>Signed in as {instructorName}</p>
               </div>
@@ -425,9 +426,9 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
                     <p>{new Date(historyDetail.createdAt).toLocaleString()}</p>
                   </div>
                   <div className="history-detail-actions">
-                    {sheetConnection.configured && <button className="sheet-button" type="button" onClick={() => syncToGoogleSheets(historyDetail)} disabled={sheetSyncingId === historyDetail.id}>{sheetSyncingId === historyDetail.id ? "Syncing…" : "↗ Sync to Sheet"}</button>}
+                    {historyDetail.canManage && sheetConnection.configured && <button className="sheet-button" type="button" onClick={() => syncToGoogleSheets(historyDetail)} disabled={sheetSyncingId === historyDetail.id}>{sheetSyncingId === historyDetail.id ? "Syncing…" : "↗ Sync to Sheet"}</button>}
                     <button className="download-button" type="button" onClick={() => downloadAttendance(historyDetail)} disabled={historyDetail.checkins.length === 0}>↓ Download CSV</button>
-                    <button className="delete-button" type="button" onClick={() => deleteHistorySession(historyDetail)} disabled={deletingId === historyDetail.id}>{deletingId === historyDetail.id ? "Deleting…" : "Delete session"}</button>
+                    {historyDetail.canManage && <button className="delete-button" type="button" onClick={() => deleteHistorySession(historyDetail)} disabled={deletingId === historyDetail.id}>{deletingId === historyDetail.id ? "Deleting…" : "Delete session"}</button>}
                   </div>
                 </div>
                 {historyDetail.checkins.length ? (
@@ -448,7 +449,7 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
                       <span><strong>{item.course}</strong><small>{new Date(item.createdAt).toLocaleString()}</small></span>
                       <b>{item.attendanceCount} {item.attendanceCount === 1 ? "student" : "students"} →</b>
                     </button>
-                    <button className="history-delete-button" type="button" onClick={() => deleteHistorySession(item)} disabled={deletingId === item.id} aria-label={`Delete ${item.course} session from ${new Date(item.createdAt).toLocaleString()}`} title="Delete session">{deletingId === item.id ? "…" : "Delete"}</button>
+                    {item.canManage && <button className="history-delete-button" type="button" onClick={() => deleteHistorySession(item)} disabled={deletingId === item.id} aria-label={`Delete ${item.course} session from ${new Date(item.createdAt).toLocaleString()}`} title="Delete session">{deletingId === item.id ? "…" : "Delete"}</button>}
                   </div>
                 ))}
               </div>

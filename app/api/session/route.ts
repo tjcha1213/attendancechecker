@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getChatGPTUser } from "../../chatgpt-auth";
 import { getDb } from "../../../db";
 import { checkins, sessions } from "../../../db/schema";
+import { sendGoogleSheetsSync } from "../../../lib/google-sheets";
 
 export const dynamic = "force-dynamic";
 
@@ -29,24 +30,21 @@ export async function GET(request: NextRequest) {
         course: sessions.course,
         classDate: sessions.classDate,
         createdAt: sessions.createdAt,
+        ownerId: sessions.ownerId,
         attendanceCount: count(checkins.id),
       })
       .from(sessions)
       .leftJoin(checkins, eq(checkins.sessionId, sessions.id))
-      .where(eq(sessions.ownerId, user.userId))
       .groupBy(sessions.id)
       .orderBy(desc(sessions.createdAt));
-    return NextResponse.json(history, { headers: { "cache-control": "no-store" } });
+    return NextResponse.json(history.map(({ ownerId, ...item }) => ({
+      ...item,
+      canManage: ownerId === user.userId,
+    })), { headers: { "cache-control": "private, no-store" } });
   }
 
   const session = await db.select().from(sessions).where(eq(sessions.id, id)).get();
   if (!session) return NextResponse.json({ error: "Session not found" }, { status: 404 });
-  if (session.ownerId !== user.userId) {
-    const activeSession = await latestSession(db);
-    if (activeSession?.id !== session.id) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-  }
   return NextResponse.json(await sessionResponse(db, session, user.userId), {
     headers: { "cache-control": "private, no-store" },
   });
@@ -67,8 +65,22 @@ export async function POST(request: NextRequest) {
       headers: { "cache-control": "private, no-store" },
     });
   }
-  if (body.renew && activeSession && activeSession.ownerId !== user.userId) {
-    return NextResponse.json({ error: "Only the session owner can renew attendance" }, { status: 403 });
+  if (body.renew && activeSession) {
+    const rows = await db
+      .select({ name: checkins.name, nameKey: checkins.nameKey, checkedInAt: checkins.checkedInAt })
+      .from(checkins)
+      .where(eq(checkins.sessionId, activeSession.id))
+      .orderBy(asc(checkins.checkedInAt));
+    const sheetSync = await sendGoogleSheetsSync({
+      action: "replaceSession",
+      session: activeSession,
+      checkins: rows,
+    });
+    if (sheetSync.status !== "success" && sheetSync.status !== "not_configured") {
+      return NextResponse.json({
+        error: "Google Sheets did not confirm the current roster. No new session was started.",
+      }, { status: 502 });
+    }
   }
 
   const now = new Date();
