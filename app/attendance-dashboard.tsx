@@ -9,10 +9,9 @@ type Session = {
   course: string;
   classDate: string;
   createdAt: string;
+  canManage: boolean;
   checkins: Checkin[];
 };
-
-const STORAGE_KEY = "classroom-attendance-session";
 
 const MEMES = [
   {
@@ -45,14 +44,6 @@ const MEMES = [
   },
 ] as const;
 
-function todayKey() {
-  return new Intl.DateTimeFormat("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
-
 type HistoryItem = {
   id: string;
   course: string;
@@ -81,18 +72,20 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
   const [sheetSyncingId, setSheetSyncingId] = useState("");
   const [sheetMessage, setSheetMessage] = useState("");
 
-  const refreshSession = useCallback(async (id: string, quiet = false) => {
+  const loadActiveSession = useCallback(async (quiet = false) => {
     try {
-      const response = await fetch(`/api/session?id=${encodeURIComponent(id)}`, {
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error("Session not found");
+      const response = await fetch("/api/session?active=1", { cache: "no-store" });
+      if (response.status === 404) {
+        setSession(null);
+        return;
+      }
+      if (!response.ok) throw new Error("Unable to load active session");
       const data = (await response.json()) as Session;
       setSession(data);
+      setCourse(data.course);
       setError("");
     } catch {
-      if (!quiet) localStorage.removeItem(STORAGE_KEY);
-      if (!quiet) setSession(null);
+      if (!quiet) setError("Could not load the shared attendance session. Please refresh to try again.");
     } finally {
       if (!quiet) setLoading(false);
     }
@@ -100,31 +93,15 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 1000);
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as { id: string; date: string; memeIndex?: number };
-        if (parsed.date === todayKey()) {
-          setMemeIndex(Number.isInteger(parsed.memeIndex) ? Math.abs(parsed.memeIndex!) % MEMES.length : 0);
-          refreshSession(parsed.id);
-        }
-        else {
-          localStorage.removeItem(STORAGE_KEY);
-          setLoading(false);
-        }
-      } catch {
-        localStorage.removeItem(STORAGE_KEY);
-        setLoading(false);
-      }
-    } else setLoading(false);
+    loadActiveSession();
     return () => window.clearInterval(timer);
-  }, [refreshSession]);
+  }, [loadActiveSession]);
 
   useEffect(() => {
     if (!session) return;
-    const timer = window.setInterval(() => refreshSession(session.id, true), 2500);
+    const timer = window.setInterval(() => loadActiveSession(true), 2500);
     return () => window.clearInterval(timer);
-  }, [refreshSession, session?.id]);
+  }, [loadActiveSession, session?.id]);
 
   useEffect(() => {
     if (!session) return;
@@ -160,8 +137,8 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
       if (!response.ok) throw new Error("Unable to start session");
       const data = (await response.json()) as Session;
       const firstMemeIndex = Math.floor(Math.random() * MEMES.length);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ id: data.id, date: todayKey(), memeIndex: firstMemeIndex }));
       setMemeIndex(firstMemeIndex);
+      setCourse(data.course);
       setSession(data);
     } catch {
       setError("Could not start attendance. Please try again.");
@@ -179,12 +156,11 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
       const response = await fetch("/api/session", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ course: session.course }),
+        body: JSON.stringify({ course: session.course, renew: true }),
       });
       if (!response.ok) throw new Error();
       const data = (await response.json()) as Session;
       const nextMemeIndex = (memeIndex + 1) % MEMES.length;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ id: data.id, date: todayKey(), memeIndex: nextMemeIndex }));
       setMemeIndex(nextMemeIndex);
       setSession(data);
       setQrDataUrl("");
@@ -237,8 +213,8 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
       setHistory((items) => items.filter((item) => item.id !== target.id));
       if (historyDetail?.id === target.id) setHistoryDetail(null);
       if (session?.id === target.id) {
-        localStorage.removeItem(STORAGE_KEY);
-        setSession(null);
+        setLoading(true);
+        await loadActiveSession();
       }
     } catch {
       setError("Could not delete that attendance session. Please try again.");
@@ -351,10 +327,12 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
             <strong>{formattedDate}</strong>
             <span>{formattedTime}</span>
           </div>
-          <div className="session-actions">
-            <button type="button" onClick={openHistory}>History</button>
-            <button type="button" onClick={renewSession} disabled={starting}>{starting ? "Renewing…" : "↻ Renew"}</button>
-          </div>
+          {session.canManage && (
+            <div className="session-actions">
+              <button type="button" onClick={openHistory}>History</button>
+              <button type="button" onClick={renewSession} disabled={starting}>{starting ? "Renewing…" : "↻ Renew"}</button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -382,7 +360,7 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
           <h2 id="roster-title">Signed in</h2>
           <div className="roster-actions">
             <span>{session.checkins.length} {session.checkins.length === 1 ? "student" : "students"}</span>
-            {sheetConnection.configured && (
+            {session.canManage && sheetConnection.configured && (
               <button
                 className="sheet-button"
                 type="button"
@@ -393,7 +371,7 @@ export default function AttendanceDashboard({ instructorName }: { instructorName
                 {sheetSyncingId === session.id ? "Syncing…" : "↗ Sync now"}
               </button>
             )}
-            {sheetConnection.sheetUrl && (
+            {session.canManage && sheetConnection.sheetUrl && (
               <a className="sheet-link" href={sheetConnection.sheetUrl} target="_blank" rel="noreferrer">Open Sheet</a>
             )}
             <button

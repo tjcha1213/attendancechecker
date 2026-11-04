@@ -2,6 +2,8 @@
 
 A live classroom attendance display. An instructor signs in, starts a session, students scan the projected QR code and enter their names, and the attendance list updates automatically. Renewing starts a fresh session while preserving prior rosters in the instructor-only history archive.
 
+The newest session is the shared active session stored in D1. Opening the Site from another browser, device, or signed-in account loads that same session and roster; only the account that created it can renew it or manage its history.
+
 The source is maintained in `tjcha1213/dataviz`. Production uses a hosted Worker and D1 database because GitHub Pages cannot accept or synchronize student check-ins.
 
 ## Google Sheets sync
