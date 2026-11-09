@@ -1,10 +1,10 @@
-# Classroom Attendance
+# Attendance Checker
 
 A live classroom attendance display. An instructor signs in, starts a session, students scan the projected QR code and enter their names, and the attendance list updates automatically. Renewing starts a fresh session while preserving prior rosters in the instructor-only history archive.
 
 The newest session is the shared active session stored in D1. Opening the Site from another browser, device, or signed-in account loads that same session and roster. Every signed-in viewer can renew the live roster and review the shared history; destructive deletion remains limited to the account that created each session.
 
-The source is maintained in `tjcha1213/dataviz`. Production uses a hosted Worker and D1 database because GitHub Pages cannot accept or synchronize student check-ins.
+The source is maintained in `tjcha1213/attendancechecker`. Production uses a hosted Worker and D1 database because GitHub Pages cannot accept or synchronize student check-ins.
 
 ## Google Sheets sync
 
